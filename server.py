@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 PORT = int(os.environ.get('PORT', 3001))
 DIR = os.path.dirname(os.path.abspath(__file__))
+DISCORD_WEBHOOK = os.environ.get('DISCORD_WEBHOOK', '')
 
 if os.path.isdir("/data"):
     DB_PATH = "/data/resy.db"
@@ -303,6 +304,18 @@ def try_snipe(watch, config_token, day, time_str, settings, conn):
             (watch['id'], day, time_str))
         conn.commit()
 
+def discord_notify(message):
+    """Send a notification to Discord via webhook."""
+    webhook = DISCORD_WEBHOOK
+    if not webhook:
+        return
+    try:
+        payload = json.dumps({"content": message, "username": "Artemis NYC 🎯"}).encode()
+        req = urllib.request.Request(webhook, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"Discord webhook error: {e}")
+
 def log_activity(watch_id, type_, message, details=None, conn=None):
     close = False
     if conn is None:
@@ -313,6 +326,9 @@ def log_activity(watch_id, type_, message, details=None, conn=None):
     conn.commit()
     if close:
         conn.close()
+    # Send Discord alerts for found slots and bookings
+    if type_ in ("found", "booked"):
+        discord_notify(message)
 
 # ─── HTTP Handler ───────────────────────────────────────────────────
 
