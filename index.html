@@ -142,6 +142,7 @@ input::placeholder{color:#555}
     <button data-page="add-watch">+ Add Watch</button>
     <button data-page="found-slots">Found Slots</button>
     <button data-page="activity">Activity Log</button>
+    <button data-page="infra">⚙️ Infrastructure</button>
     <button data-page="settings">Settings</button>
 </div>
 
@@ -258,6 +259,37 @@ input::placeholder{color:#555}
         </div>
         <div class="card" style="padding:0;overflow:hidden">
             <div id="activity-list"></div>
+        </div>
+    </div>
+
+    <!-- Infrastructure -->
+    <div class="page" id="page-infra">
+        <div class="stats" id="infra-stats">
+            <div class="stat"><div class="stat-value" id="stat-proxies">0</div><div class="stat-label">Active Proxies</div></div>
+            <div class="stat"><div class="stat-value" id="stat-accounts">0</div><div class="stat-label">Active Accounts</div></div>
+            <div class="stat"><div class="stat-value" id="stat-reqs-today">0</div><div class="stat-label">Requests Today</div></div>
+            <div class="stat"><div class="stat-value" id="stat-reqs-ok">0%</div><div class="stat-label">Success Rate</div></div>
+        </div>
+
+        <div class="card">
+            <h2>🔌 Proxy Pool</h2>
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+                <input type="text" id="proxy-url" placeholder="http://user:pass@ip:port" style="flex:1">
+                <button class="btn btn-gold" onclick="addProxy()">Add</button>
+            </div>
+            <div id="proxy-list"></div>
+        </div>
+
+        <div class="card">
+            <h2>👤 Account Pool</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                <input type="text" id="acct-email" placeholder="Email">
+                <input type="text" id="acct-label" placeholder="Label (e.g. Burner 1)">
+                <input type="text" id="acct-api-key" placeholder="API Key">
+                <input type="password" id="acct-auth-token" placeholder="Auth Token">
+            </div>
+            <button class="btn btn-gold" onclick="addAccount()" style="margin-bottom:16px">Add Account</button>
+            <div id="account-list"></div>
         </div>
     </div>
 
@@ -547,9 +579,123 @@ function timeAgo(ts) {
     return Math.floor(diff/86400) + 'd ago';
 }
 
+// ─── Infrastructure ────────────────────────────────────────
+let infraProxies = [], infraAccounts = [], infraStats = {};
+
+async function loadInfra() {
+    const [p, a, s] = await Promise.all([
+        api('/api/proxies'), api('/api/accounts'), api('/api/infra/stats')
+    ]);
+    infraProxies = p; infraAccounts = a; infraStats = s;
+    renderInfra();
+}
+
+function renderInfra() {
+    const s = infraStats;
+    document.getElementById('stat-proxies').textContent = s.proxies_active || 0;
+    document.getElementById('stat-accounts').textContent = s.accounts_active || 0;
+    document.getElementById('stat-reqs-today').textContent = s.requests_today || 0;
+    const rate = s.requests_today ? Math.round((s.requests_ok / s.requests_today) * 100) : 100;
+    document.getElementById('stat-reqs-ok').textContent = rate + '%';
+
+    // Proxies
+    const pl = document.getElementById('proxy-list');
+    if (!infraProxies.length) {
+        pl.innerHTML = '<div class="empty"><p>No proxies. Requests go direct.</p></div>';
+    } else {
+        pl.innerHTML = infraProxies.map(p => `
+            <div class="watch-item">
+                <div class="watch-info">
+                    <div class="watch-name" style="font-family:monospace;font-size:13px">${esc(p.url.replace(/\/\/(.+?)@/, '//***@'))}</div>
+                    <div class="watch-meta">
+                        Fails: ${p.fail_count} · ${p.last_used ? 'Last used: ' + timeAgo(p.last_used) : 'Never used'}
+                    </div>
+                    <div class="watch-badges">
+                        ${p.active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-paused">Inactive</span>'}
+                    </div>
+                </div>
+                <div class="watch-actions">
+                    ${!p.active ? '<button onclick="resetProxy('+p.id+')">Reset</button>' : ''}
+                    <button class="del" onclick="deleteProxy(${p.id})">×</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Accounts
+    const al = document.getElementById('account-list');
+    if (!infraAccounts.length) {
+        al.innerHTML = '<div class="empty"><p>No accounts. Using settings credentials.</p></div>';
+    } else {
+        al.innerHTML = infraAccounts.map(a => `
+            <div class="watch-item">
+                <div class="watch-info">
+                    <div class="watch-name">${esc(a.label || a.email)}</div>
+                    <div class="watch-meta">
+                        ${esc(a.email)} · Fails: ${a.fail_count} · ${a.last_used ? 'Last used: ' + timeAgo(a.last_used) : 'Never used'}
+                        ${a.token_expires ? ' · Expires: ' + a.token_expires : ''}
+                    </div>
+                    <div class="watch-badges">
+                        ${a.is_primary ? '<span class="badge" style="background:rgba(212,168,83,.15);color:var(--gold)">👑 Primary</span>' : ''}
+                        ${a.active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-paused">Inactive</span>'}
+                    </div>
+                </div>
+                <div class="watch-actions">
+                    ${!a.is_primary ? '<button onclick="setPrimary('+a.id+')">👑</button>' : ''}
+                    <button class="del" onclick="deleteAccount(${a.id})">×</button>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+async function addProxy() {
+    const url = document.getElementById('proxy-url').value.trim();
+    if (!url) return;
+    await api('/api/proxies', { method: 'POST', body: { url } });
+    document.getElementById('proxy-url').value = '';
+    loadInfra();
+}
+
+async function deleteProxy(id) {
+    await api('/api/proxies/' + id, { method: 'DELETE' });
+    loadInfra();
+}
+
+async function resetProxy(id) {
+    await api('/api/proxies/' + id + '/reset', { method: 'POST' });
+    loadInfra();
+}
+
+async function addAccount() {
+    const body = {
+        email: document.getElementById('acct-email').value.trim(),
+        label: document.getElementById('acct-label').value.trim(),
+        api_key: document.getElementById('acct-api-key').value.trim(),
+        auth_token: document.getElementById('acct-auth-token').value.trim(),
+    };
+    if (!body.email || !body.api_key || !body.auth_token) { alert('Email, API key, and auth token required'); return; }
+    await api('/api/accounts', { method: 'POST', body });
+    ['acct-email','acct-label','acct-api-key','acct-auth-token'].forEach(id => document.getElementById(id).value = '');
+    loadInfra();
+}
+
+async function deleteAccount(id) {
+    if (!confirm('Remove this account?')) return;
+    await api('/api/accounts/' + id, { method: 'DELETE' });
+    loadInfra();
+}
+
+async function setPrimary(id) {
+    await api('/api/accounts/' + id + '/primary', { method: 'POST' });
+    loadInfra();
+}
+
 // ─── Init ──────────────────────────────────────────────────
 loadAll();
-setInterval(loadAll, 15000); // Refresh every 15s
+loadInfra();
+setInterval(loadAll, 15000);
+setInterval(loadInfra, 30000);
 </script>
 </body>
 </html>

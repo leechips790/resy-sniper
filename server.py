@@ -4,6 +4,7 @@
 import http.server
 import json
 import os
+import random
 import sqlite3
 import time
 import threading
@@ -72,6 +73,35 @@ def init_db():
             seen_at TEXT DEFAULT (datetime('now')),
             booked INTEGER DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS proxies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            last_used TEXT,
+            fail_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            label TEXT DEFAULT '',
+            api_key TEXT NOT NULL,
+            auth_token TEXT NOT NULL,
+            token_expires TEXT,
+            active INTEGER DEFAULT 1,
+            is_primary INTEGER DEFAULT 0,
+            last_used TEXT,
+            fail_count INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS request_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            proxy_id INTEGER,
+            account_id INTEGER,
+            url TEXT,
+            success INTEGER,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     conn.commit()
     conn.close()
@@ -98,6 +128,109 @@ def resy_headers(settings=None):
         h["X-Resy-Auth-Token"] = token
     return h
 
+def pick_proxy(conn=None):
+    """Pick a random active proxy, or None for direct."""
+    close = conn is None
+    if close:
+        conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM proxies WHERE active=1 ORDER BY RANDOM() LIMIT 1"
+    ).fetchone()
+    if close:
+        conn.close()
+    return dict(row) if row else None
+
+def pick_account(for_booking=False, conn=None):
+    """Pick an account. for_booking=True returns primary, else random burner."""
+    close = conn is None
+    if close:
+        conn = get_db()
+    if for_booking:
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE active=1 AND is_primary=1 LIMIT 1"
+        ).fetchone()
+    else:
+        # Prefer non-primary burner accounts
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE active=1 AND is_primary=0 ORDER BY RANDOM() LIMIT 1"
+        ).fetchone()
+        # Fall back to primary if no burners
+        if not row:
+            row = conn.execute(
+                "SELECT * FROM accounts WHERE active=1 AND is_primary=1 LIMIT 1"
+            ).fetchone()
+    if close:
+        conn.close()
+    return dict(row) if row else None
+
+def resy_request(url, method="GET", data=None, for_booking=False, need_auth=True):
+    """Make a Resy API request with proxy/account rotation + jitter."""
+    conn = get_db()
+    proxy = pick_proxy(conn)
+    account = pick_account(for_booking=for_booking, conn=conn)
+
+    # Build headers - use account pool if available, fall back to settings
+    if account:
+        headers = {
+            "Authorization": 'ResyAPI api_key="%s"' % account['api_key'],
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Origin": "https://resy.com",
+            "Referer": "https://resy.com/",
+        }
+        if need_auth and account.get('auth_token'):
+            headers["X-Resy-Auth-Token"] = account['auth_token']
+        conn.execute("UPDATE accounts SET last_used=datetime('now') WHERE id=?", (account['id'],))
+    else:
+        # Fall back to settings-based auth
+        settings = get_settings()
+        headers = resy_headers(settings)
+
+    if proxy:
+        conn.execute("UPDATE proxies SET last_used=datetime('now') WHERE id=?", (proxy['id'],))
+
+    conn.commit()
+
+    # Random jitter
+    time.sleep(random.uniform(0.5, 2.0))
+
+    # Build request
+    req = urllib.request.Request(url, headers=headers, method=method)
+    if data:
+        req.data = data
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+
+    # Set up proxy handler
+    if proxy:
+        proxy_handler = urllib.request.ProxyHandler({
+            'http': proxy['url'],
+            'https': proxy['url'],
+        })
+        opener = urllib.request.build_opener(proxy_handler)
+    else:
+        opener = urllib.request.build_opener()
+
+    try:
+        with opener.open(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+        # Log success
+        conn.execute("INSERT INTO request_log (proxy_id, account_id, url, success) VALUES (?,?,?,1)",
+            (proxy['id'] if proxy else None, account['id'] if account else None, url))
+        conn.commit()
+        conn.close()
+        return result
+    except Exception as e:
+        # Increment fail counts
+        if proxy:
+            conn.execute("UPDATE proxies SET fail_count=fail_count+1 WHERE id=?", (proxy['id'],))
+            conn.execute("UPDATE proxies SET active=0 WHERE id=? AND fail_count>=3", (proxy['id'],))
+        if account:
+            conn.execute("UPDATE accounts SET fail_count=fail_count+1 WHERE id=?", (account['id'],))
+        conn.execute("INSERT INTO request_log (proxy_id, account_id, url, success) VALUES (?,?,?,0)",
+            (proxy['id'] if proxy else None, account['id'] if account else None, url))
+        conn.commit()
+        conn.close()
+        return {"error": str(e)}
+
 def resy_find(venue_id, day, party_size, settings=None):
     """Find available slots for a venue on a given day."""
     params = urllib.parse.urlencode({
@@ -108,23 +241,13 @@ def resy_find(venue_id, day, party_size, settings=None):
         "long": "-74.0060",
     })
     url = f"{RESY_API}/4/find?{params}"
-    req = urllib.request.Request(url, headers=resy_headers(settings))
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    return resy_request(url, for_booking=False)
 
 def resy_venue(venue_id, settings=None):
     """Get venue details."""
     params = urllib.parse.urlencode({"id": venue_id})
     url = f"{RESY_API}/4/venue?{params}"
-    req = urllib.request.Request(url, headers=resy_headers(settings))
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    return resy_request(url, for_booking=False)
 
 def resy_search(query, settings=None):
     """Search for venues."""
@@ -135,12 +258,7 @@ def resy_search(query, settings=None):
         "per_page": 10,
     })
     url = f"{RESY_API}/3/venuesearch/search?{params}"
-    req = urllib.request.Request(url, headers=resy_headers(settings))
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    return resy_request(url, for_booking=False)
 
 def resy_get_details(config_id, day, party_size, settings=None):
     """Get booking details/token for a specific slot."""
@@ -150,28 +268,18 @@ def resy_get_details(config_id, day, party_size, settings=None):
         "party_size": party_size,
     })
     url = f"{RESY_API}/3/details?{params}"
-    req = urllib.request.Request(url, headers=resy_headers(settings))
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    return resy_request(url, for_booking=True)
 
 def resy_book(book_token, settings=None):
-    """Book a reservation."""
+    """Book a reservation using primary account only."""
     s = settings or get_settings()
+    # For booking, get payment method from settings
     data = urllib.parse.urlencode({
         "book_token": book_token,
         "struct_payment_method": json.dumps({"id": int(s.get("payment_method_id", 0))}),
     }).encode()
     url = f"{RESY_API}/3/book"
-    req = urllib.request.Request(url, data=data, headers=resy_headers(s), method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except Exception as e:
-        return {"error": str(e)}
+    return resy_request(url, method="POST", data=data, for_booking=True)
 
 # ─── Monitor Thread ─────────────────────────────────────────────────
 
@@ -424,6 +532,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self._json({"error": "Missing query"}, 400)
 
+        elif path == "/api/proxies":
+            conn = get_db()
+            rows = conn.execute("SELECT * FROM proxies ORDER BY created_at DESC").fetchall()
+            conn.close()
+            self._json([dict(r) for r in rows])
+
+        elif path == "/api/accounts":
+            conn = get_db()
+            rows = conn.execute("SELECT * FROM accounts ORDER BY is_primary DESC, created_at DESC").fetchall()
+            conn.close()
+            result = []
+            for r in rows:
+                d = dict(r)
+                # Mask tokens
+                for k in ('auth_token', 'api_key'):
+                    v = d.get(k, '')
+                    if v and len(v) > 12:
+                        d[k] = v[:6] + "..." + v[-4:]
+                    elif v:
+                        d[k] = "***"
+                result.append(d)
+            self._json(result)
+
+        elif path == "/api/infra/stats":
+            conn = get_db()
+            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+            proxies_active = conn.execute("SELECT COUNT(*) FROM proxies WHERE active=1").fetchone()[0]
+            proxies_total = conn.execute("SELECT COUNT(*) FROM proxies").fetchone()[0]
+            accounts_active = conn.execute("SELECT COUNT(*) FROM accounts WHERE active=1").fetchone()[0]
+            accounts_total = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+            requests_today = conn.execute("SELECT COUNT(*) FROM request_log WHERE created_at >= ?", (today,)).fetchone()[0]
+            requests_ok = conn.execute("SELECT COUNT(*) FROM request_log WHERE created_at >= ? AND success=1", (today,)).fetchone()[0]
+            conn.close()
+            self._json({
+                "proxies_active": proxies_active, "proxies_total": proxies_total,
+                "accounts_active": accounts_active, "accounts_total": accounts_total,
+                "requests_today": requests_today, "requests_ok": requests_ok,
+            })
+
         elif path.startswith("/api/venue/"):
             venue_id = path.split("/")[-1]
             result = resy_venue(venue_id)
@@ -468,6 +615,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
             self._json({"ok": True})
 
+        elif path == "/api/proxies":
+            body = self._read_body()
+            conn = get_db()
+            conn.execute("INSERT INTO proxies (url) VALUES (?)", (body.get('url', ''),))
+            conn.commit()
+            pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.close()
+            log_activity(None, "system", f"🔌 Proxy added: #{pid}")
+            self._json({"ok": True, "id": pid})
+
+        elif path == "/api/accounts":
+            body = self._read_body()
+            conn = get_db()
+            conn.execute(
+                "INSERT INTO accounts (email, label, api_key, auth_token, token_expires) VALUES (?,?,?,?,?)",
+                (body.get('email', ''), body.get('label', ''), body.get('api_key', ''),
+                 body.get('auth_token', ''), body.get('token_expires'))
+            )
+            conn.commit()
+            aid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.close()
+            log_activity(None, "system", f"👤 Account added: {body.get('label') or body.get('email')}")
+            self._json({"ok": True, "id": aid})
+
+        elif path.startswith("/api/accounts/") and path.endswith("/primary"):
+            account_id = path.split("/")[-2]
+            conn = get_db()
+            conn.execute("UPDATE accounts SET is_primary=0")  # Clear all
+            conn.execute("UPDATE accounts SET is_primary=1 WHERE id=?", (account_id,))
+            conn.commit()
+            conn.close()
+            log_activity(None, "system", f"👑 Account #{account_id} set as primary")
+            self._json({"ok": True})
+
+        elif path.startswith("/api/proxies/") and path.endswith("/reset"):
+            proxy_id = path.split("/")[-2]
+            conn = get_db()
+            conn.execute("UPDATE proxies SET fail_count=0, active=1 WHERE id=?", (proxy_id,))
+            conn.commit()
+            conn.close()
+            self._json({"ok": True})
+
         elif path == "/api/monitor/start":
             start_monitor()
             self._json({"running": True})
@@ -487,6 +676,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             watch_id = path.split("/")[-1]
             conn = get_db()
             conn.execute("DELETE FROM watches WHERE id=?", (watch_id,))
+            conn.commit()
+            conn.close()
+            self._json({"ok": True})
+
+        elif path.startswith("/api/proxies/"):
+            proxy_id = path.split("/")[-1]
+            conn = get_db()
+            conn.execute("DELETE FROM proxies WHERE id=?", (proxy_id,))
+            conn.commit()
+            conn.close()
+            self._json({"ok": True})
+
+        elif path.startswith("/api/accounts/"):
+            account_id = path.split("/")[-1]
+            conn = get_db()
+            conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
             conn.commit()
             conn.close()
             self._json({"ok": True})
