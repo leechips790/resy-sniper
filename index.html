@@ -365,7 +365,7 @@ function render() {
                     <div class="watch-name">${esc(w.venue_name || 'Venue #' + w.venue_id)}</div>
                     <div class="watch-meta">
                         ID: ${w.venue_id} · Party of ${w.party_size} · ${w.date_start}${w.date_end && w.date_end !== w.date_start ? ' → ' + w.date_end : ''}
-                        · ${w.time_earliest}–${w.time_latest}
+                        · ${fmt12(w.time_earliest)}–${fmt12(w.time_latest)}
                         ${w.last_checked ? ' · Last checked: ' + timeAgo(w.last_checked) : ''}
                     </div>
                     <div class="watch-badges">
@@ -529,6 +529,13 @@ function selectSearchResult(id, name) {
 
 // ─── Helpers ───────────────────────────────────────────────
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function fmt12(t) {
+    if (!t) return t;
+    const [h,m] = t.split(':').map(Number);
+    const suffix = h < 12 ? 'AM' : 'PM';
+    return ((h % 12) || 12) + ':' + String(m).padStart(2,'0') + ' ' + suffix;
+}
 
 function timeAgo(ts) {
     if (!ts) return '';

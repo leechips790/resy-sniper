@@ -266,7 +266,7 @@ def check_watch(watch, settings, conn):
                         (watch['id'], watch['venue_name'], day_str, start_time, watch['party_size'], config_token)
                     )
                     log_activity(watch['id'], "found",
-                        f"🎯 Slot found! {watch['venue_name']} - {day_str} at {start_time} for {watch['party_size']}",
+                        f"🎯 Slot found! {watch['venue_name']} - {day_str} at {fmt_time(start_time)} for {watch['party_size']}",
                         conn=conn)
                     
                     # Auto-book if snipe mode
@@ -281,7 +281,7 @@ def check_watch(watch, settings, conn):
 
 def try_snipe(watch, config_token, day, time_str, settings, conn):
     """Attempt to auto-book a found slot."""
-    log_activity(watch['id'], "snipe", f"⚡ Attempting to snipe {watch['venue_name']} {day} {time_str}...", conn=conn)
+    log_activity(watch['id'], "snipe", f"⚡ Attempting to snipe {watch['venue_name']} {day} {fmt_time(time_str)}...", conn=conn)
     
     # Step 1: Get booking details
     details = resy_get_details(config_token, day, watch['party_size'], settings)
@@ -299,10 +299,23 @@ def try_snipe(watch, config_token, day, time_str, settings, conn):
     if "error" in result:
         log_activity(watch['id'], "error", f"Booking failed: {result['error']}", conn=conn)
     else:
-        log_activity(watch['id'], "booked", f"✅ BOOKED! {watch['venue_name']} {day} at {time_str}", conn=conn)
+        log_activity(watch['id'], "booked", f"✅ BOOKED! {watch['venue_name']} {day} at {fmt_time(time_str)}", conn=conn)
         conn.execute("UPDATE found_slots SET booked=1 WHERE watch_id=? AND date=? AND time=?",
             (watch['id'], day, time_str))
         conn.commit()
+
+def fmt_time(t):
+    """Convert 24h time string to 12h format. '19:30' -> '7:30 PM'"""
+    try:
+        if ' ' in t:
+            t = t.split(' ')[-1]
+        t = t[:5]
+        h, m = int(t.split(':')[0]), t.split(':')[1]
+        suffix = 'AM' if h < 12 else 'PM'
+        h = h % 12 or 12
+        return f"{h}:{m} {suffix}"
+    except:
+        return t
 
 def discord_notify(message):
     """Send a notification to Discord via webhook."""
