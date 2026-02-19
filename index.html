@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Artemis NYC — Resy Sniper</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--card:#141414;--card2:#1a1a1a;--border:#2a2a2a;--gold:#d4a853;--gold2:#b8912e;--green:#4ade80;--red:#f87171;--blue:#60a5fa;--text:#e5e5e5;--dim:#888;--radius:12px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+a{color:var(--gold);text-decoration:none}
+
+/* Header */
+.header{background:linear-gradient(135deg,#0f0f0f,#1a1a1a);border-bottom:1px solid var(--border);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px}
+.logo svg{width:28px;height:28px}
+.logo h1{font-size:20px;font-weight:700;color:var(--gold);letter-spacing:1px}
+.logo span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:2px}
+
+/* Nav */
+.nav{display:flex;gap:4px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto}
+.nav button{background:none;border:none;color:var(--dim);font-size:14px;padding:8px 16px;border-radius:8px;cursor:pointer;white-space:nowrap;transition:all .2s}
+.nav button:hover{color:var(--text);background:var(--card2)}
+.nav button.active{color:var(--gold);background:rgba(212,168,83,.1)}
+
+/* Content */
+.content{max-width:900px;margin:0 auto;padding:20px}
+.page{display:none}
+.page.active{display:block}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.card h2{font-size:16px;color:var(--gold);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+
+/* Monitor bar */
+.monitor-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)}
+.monitor-dot{width:10px;height:10px;border-radius:50%;background:var(--red)}
+.monitor-dot.on{background:var(--green);box-shadow:0 0 8px rgba(74,222,128,.5);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.monitor-bar .label{font-size:14px;flex:1}
+.monitor-bar button{padding:8px 20px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-start{background:var(--green);color:#000}
+.btn-stop{background:var(--red);color:#fff}
+.btn-check{background:var(--card2);color:var(--text);border:1px solid var(--border) !important}
+
+/* Watches */
+.watch-item{display:flex;align-items:center;gap:12px;padding:14px;background:var(--card2);border-radius:8px;margin-bottom:8px}
+.watch-info{flex:1}
+.watch-name{font-weight:600;font-size:15px}
+.watch-meta{font-size:12px;color:var(--dim);margin-top:4px}
+.watch-badges{display:flex;gap:6px;margin-top:6px}
+.badge{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;text-transform:uppercase}
+.badge-snipe{background:rgba(248,113,113,.15);color:var(--red)}
+.badge-active{background:rgba(74,222,128,.15);color:var(--green)}
+.badge-paused{background:rgba(136,136,136,.15);color:var(--dim)}
+.watch-actions button{background:none;border:1px solid var(--border);color:var(--dim);padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-left:4px;transition:all .2s}
+.watch-actions button:hover{color:var(--text);border-color:var(--dim)}
+.watch-actions .del:hover{color:var(--red);border-color:var(--red)}
+
+/* Forms */
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;color:var(--dim);margin-bottom:6px;font-weight:500}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+input,select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:14px;outline:none;transition:border .2s}
+input:focus,select:focus{border-color:var(--gold)}
+input::placeholder{color:#555}
+.btn{padding:10px 24px;border-radius:8px;border:none;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+.btn-gold{background:var(--gold);color:#000}
+.btn-gold:hover{background:var(--gold2)}
+.btn-outline{background:none;border:1px solid var(--border);color:var(--text)}
+.btn-outline:hover{border-color:var(--gold);color:var(--gold)}
+
+/* Toggle */
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer}
+.toggle input{display:none}
+.toggle .slider{width:40px;height:22px;background:var(--border);border-radius:11px;position:relative;transition:all .2s}
+.toggle .slider::after{content:'';position:absolute;width:18px;height:18px;background:#666;border-radius:50%;top:2px;left:2px;transition:all .2s}
+.toggle input:checked+.slider{background:var(--gold)}
+.toggle input:checked+.slider::after{left:20px;background:#000}
+
+/* Activity */
+.activity-item{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;display:flex;gap:10px;align-items:flex-start}
+.activity-item:last-child{border-bottom:none}
+.activity-time{color:var(--dim);font-size:11px;white-space:nowrap;min-width:120px}
+.activity-msg{flex:1;line-height:1.4}
+.type-found .activity-msg{color:var(--green)}
+.type-booked .activity-msg{color:var(--gold)}
+.type-error .activity-msg{color:var(--red)}
+.type-snipe .activity-msg{color:var(--blue)}
+
+/* Found slots */
+.slot-item{display:flex;align-items:center;gap:12px;padding:12px;background:var(--card2);border-radius:8px;margin-bottom:8px}
+.slot-item.booked{border-left:3px solid var(--gold)}
+.slot-info{flex:1}
+.slot-venue{font-weight:600;font-size:14px}
+.slot-detail{font-size:12px;color:var(--dim);margin-top:2px}
+.slot-badge{font-size:11px;padding:4px 10px;border-radius:6px;font-weight:600}
+.slot-badge.new{background:rgba(74,222,128,.15);color:var(--green)}
+.slot-badge.booked{background:rgba(212,168,83,.15);color:var(--gold)}
+
+/* Search results */
+.search-result{display:flex;align-items:center;gap:12px;padding:12px;background:var(--card2);border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .2s}
+.search-result:hover{border-color:var(--gold);background:#1e1e1e}
+.search-name{font-weight:600}
+.search-meta{font-size:12px;color:var(--dim)}
+
+/* Stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center}
+.stat-value{font-size:28px;font-weight:700;color:var(--gold)}
+.stat-label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+
+/* Empty state */
+.empty{text-align:center;padding:40px 20px;color:var(--dim)}
+.empty .icon{font-size:48px;margin-bottom:12px}
+.empty p{font-size:14px}
+
+/* Responsive */
+@media(max-width:600px){
+    .form-row{grid-template-columns:1fr}
+    .stats{grid-template-columns:1fr 1fr}
+    .monitor-bar{flex-wrap:wrap}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--gold)">
+            <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+        <div>
+            <h1>ARTEMIS NYC</h1>
+            <span>Resy Reservation Sniper</span>
+        </div>
+    </div>
+</div>
+
+<div class="nav" id="nav">
+    <button class="active" data-page="dashboard">Dashboard</button>
+    <button data-page="add-watch">+ Add Watch</button>
+    <button data-page="found-slots">Found Slots</button>
+    <button data-page="activity">Activity Log</button>
+    <button data-page="settings">Settings</button>
+</div>
+
+<div class="content">
+
+    <!-- Dashboard -->
+    <div class="page active" id="page-dashboard">
+        <div class="stats" id="stats">
+            <div class="stat"><div class="stat-value" id="stat-watches">0</div><div class="stat-label">Active Watches</div></div>
+            <div class="stat"><div class="stat-value" id="stat-found">0</div><div class="stat-label">Slots Found</div></div>
+            <div class="stat"><div class="stat-value" id="stat-booked">0</div><div class="stat-label">Booked</div></div>
+            <div class="stat"><div class="stat-value" id="stat-events">0</div><div class="stat-label">Events Today</div></div>
+        </div>
+
+        <div class="monitor-bar">
+            <div class="monitor-dot" id="monitor-dot"></div>
+            <div class="label" id="monitor-label">Monitor: Stopped</div>
+            <button class="btn-check" onclick="manualCheck()">Check Now</button>
+            <button class="btn-start" id="monitor-btn" onclick="toggleMonitor()">Start</button>
+        </div>
+
+        <div class="card">
+            <h2>🎯 Active Watches</h2>
+            <div id="watch-list"></div>
+        </div>
+
+        <div class="card">
+            <h2>📡 Recent Activity</h2>
+            <div id="recent-activity"></div>
+        </div>
+    </div>
+
+    <!-- Add Watch -->
+    <div class="page" id="page-add-watch">
+        <div class="card">
+            <h2>🔍 Search Restaurant</h2>
+            <div class="form-group">
+                <label>Search by name</label>
+                <input type="text" id="search-input" placeholder="e.g. Don Angie, Carbone, 4 Charles..." oninput="debounceSearch()">
+            </div>
+            <div id="search-results"></div>
+        </div>
+
+        <div class="card">
+            <h2>➕ Add Watch</h2>
+            <div class="form-group">
+                <label>Venue ID</label>
+                <input type="text" id="watch-venue-id" placeholder="Resy venue ID">
+            </div>
+            <div class="form-group">
+                <label>Restaurant Name</label>
+                <input type="text" id="watch-venue-name" placeholder="Restaurant name">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Date Start</label>
+                    <input type="date" id="watch-date-start">
+                </div>
+                <div class="form-group">
+                    <label>Date End (optional)</label>
+                    <input type="date" id="watch-date-end">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Earliest Time</label>
+                    <input type="time" id="watch-time-earliest" value="17:00">
+                </div>
+                <div class="form-group">
+                    <label>Latest Time</label>
+                    <input type="time" id="watch-time-latest" value="22:00">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Party Size</label>
+                    <select id="watch-party-size">
+                        <option value="1">1</option>
+                        <option value="2" selected>2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Snipe Mode</label>
+                    <label class="toggle" style="margin-top:8px">
+                        <input type="checkbox" id="watch-snipe">
+                        <div class="slider"></div>
+                        <span style="font-size:13px">Auto-book on find</span>
+                    </label>
+                </div>
+            </div>
+            <button class="btn btn-gold" onclick="addWatch()">Add Watch</button>
+        </div>
+    </div>
+
+    <!-- Found Slots -->
+    <div class="page" id="page-found-slots">
+        <div class="card">
+            <h2>🎰 Found Slots</h2>
+            <div id="found-list"></div>
+        </div>
+    </div>
+
+    <!-- Activity Log -->
+    <div class="page" id="page-activity">
+        <div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px">
+            <h2 style="margin:0">📋 Activity Log</h2>
+            <button class="btn btn-outline" onclick="clearActivity()" style="font-size:12px;padding:6px 12px">Clear All</button>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+            <div id="activity-list"></div>
+        </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="page" id="page-settings">
+        <div class="card">
+            <h2>🔑 Resy API Credentials</h2>
+            <p style="font-size:12px;color:var(--dim);margin-bottom:16px">
+                Get these from browser DevTools while logged into resy.com. 
+                Open Network tab → find any API call → copy the header values.
+            </p>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="text" id="setting-api-key" placeholder="VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5">
+            </div>
+            <div class="form-group">
+                <label>Auth Token</label>
+                <input type="password" id="setting-auth-token" placeholder="Your x-resy-auth-token">
+            </div>
+            <div class="form-group">
+                <label>Payment Method ID (for auto-booking)</label>
+                <input type="text" id="setting-payment-id" placeholder="Optional - needed for snipe mode">
+            </div>
+            <button class="btn btn-gold" onclick="saveSettings()">Save Settings</button>
+            <span id="settings-status" style="margin-left:12px;font-size:13px;color:var(--green)"></span>
+        </div>
+
+        <div class="card">
+            <h2>ℹ️ How to Get Credentials</h2>
+            <ol style="font-size:13px;color:var(--dim);padding-left:20px;line-height:2">
+                <li>Log into <a href="https://resy.com" target="_blank">resy.com</a></li>
+                <li>Open Chrome DevTools (F12) → Network tab</li>
+                <li>Search for a restaurant on Resy</li>
+                <li>Find any request to api.resy.com</li>
+                <li>Copy the <code style="color:var(--gold)">authorization</code> header value (the part after "ResyAPI api_key=")</li>
+                <li>Copy the <code style="color:var(--gold)">x-resy-auth-token</code> header value</li>
+                <li>For venue IDs: look at the URL or API calls when viewing a restaurant</li>
+            </ol>
+        </div>
+    </div>
+</div>
+
+<script>
+const API = '';
+let watches = [], activities = [], foundSlots = [], monitorRunning = false;
+let searchTimeout;
+
+// ─── Navigation ────────────────────────────────────────────
+document.querySelectorAll('.nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('page-' + btn.dataset.page).classList.add('active');
+    });
+});
+
+// ─── API ───────────────────────────────────────────────────
+async function api(path, opts = {}) {
+    const res = await fetch(API + path, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    return res.json();
+}
+
+// ─── Load Data ─────────────────────────────────────────────
+async function loadAll() {
+    const [w, a, f, s, m] = await Promise.all([
+        api('/api/watches'), api('/api/activity'), api('/api/found'),
+        api('/api/settings'), api('/api/monitor/status')
+    ]);
+    watches = w; activities = a; foundSlots = f; monitorRunning = m.running;
+    render();
+}
+
+// ─── Render ────────────────────────────────────────────────
+function render() {
+    // Stats
+    const active = watches.filter(w => w.active);
+    document.getElementById('stat-watches').textContent = active.length;
+    document.getElementById('stat-found').textContent = foundSlots.length;
+    document.getElementById('stat-booked').textContent = foundSlots.filter(s => s.booked).length;
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('stat-events').textContent = activities.filter(a => a.created_at && a.created_at.startsWith(today)).length;
+
+    // Monitor
+    const dot = document.getElementById('monitor-dot');
+    const label = document.getElementById('monitor-label');
+    const btn = document.getElementById('monitor-btn');
+    dot.className = 'monitor-dot' + (monitorRunning ? ' on' : '');
+    label.textContent = 'Monitor: ' + (monitorRunning ? 'Running (every 30s)' : 'Stopped');
+    btn.textContent = monitorRunning ? 'Stop' : 'Start';
+    btn.className = monitorRunning ? 'btn-stop' : 'btn-start';
+
+    // Watch list
+    const wl = document.getElementById('watch-list');
+    if (!watches.length) {
+        wl.innerHTML = '<div class="empty"><div class="icon">🎯</div><p>No watches yet. Add a restaurant to start monitoring.</p></div>';
+    } else {
+        wl.innerHTML = watches.map(w => `
+            <div class="watch-item">
+                <div class="watch-info">
+                    <div class="watch-name">${esc(w.venue_name || 'Venue #' + w.venue_id)}</div>
+                    <div class="watch-meta">
+                        ID: ${w.venue_id} · Party of ${w.party_size} · ${w.date_start}${w.date_end && w.date_end !== w.date_start ? ' → ' + w.date_end : ''}
+                        · ${w.time_earliest}–${w.time_latest}
+                        ${w.last_checked ? ' · Last checked: ' + timeAgo(w.last_checked) : ''}
+                    </div>
+                    <div class="watch-badges">
+                        ${w.active ? '<span class="badge badge-active">Active</span>' : '<span class="badge badge-paused">Paused</span>'}
+                        ${w.snipe_mode ? '<span class="badge badge-snipe">⚡ Snipe</span>' : ''}
+                    </div>
+                </div>
+                <div class="watch-actions">
+                    <button onclick="toggleWatch(${w.id}, ${w.active ? 0 : 1})">${w.active ? 'Pause' : 'Resume'}</button>
+                    <button class="del" onclick="deleteWatch(${w.id})">×</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Recent activity (dashboard - last 10)
+    renderActivity(document.getElementById('recent-activity'), activities.slice(0, 10));
+    // Full activity log
+    renderActivity(document.getElementById('activity-list'), activities);
+
+    // Found slots
+    const fl = document.getElementById('found-list');
+    if (!foundSlots.length) {
+        fl.innerHTML = '<div class="empty"><div class="icon">🎰</div><p>No slots found yet. Start the monitor and wait for openings.</p></div>';
+    } else {
+        fl.innerHTML = foundSlots.map(s => `
+            <div class="slot-item ${s.booked ? 'booked' : ''}">
+                <div class="slot-info">
+                    <div class="slot-venue">${esc(s.venue_name)}</div>
+                    <div class="slot-detail">${s.date} at ${s.time} · Party of ${s.party_size}</div>
+                    <div class="slot-detail">Found ${timeAgo(s.seen_at)}</div>
+                </div>
+                <span class="slot-badge ${s.booked ? 'booked' : 'new'}">${s.booked ? '✅ Booked' : '🆕 Open'}</span>
+            </div>
+        `).join('');
+    }
+}
+
+function renderActivity(el, items) {
+    if (!items.length) {
+        el.innerHTML = '<div class="empty"><p>No activity yet.</p></div>';
+        return;
+    }
+    el.innerHTML = items.map(a => `
+        <div class="activity-item type-${a.type}">
+            <div class="activity-time">${a.created_at ? timeAgo(a.created_at) : ''}</div>
+            <div class="activity-msg">${esc(a.message)}</div>
+        </div>
+    `).join('');
+}
+
+// ─── Actions ───────────────────────────────────────────────
+async function toggleMonitor() {
+    const action = monitorRunning ? 'stop' : 'start';
+    await api('/api/monitor/' + action, { method: 'POST' });
+    loadAll();
+}
+
+async function manualCheck() {
+    await api('/api/check');
+    setTimeout(loadAll, 3000);
+}
+
+async function addWatch() {
+    const body = {
+        venue_id: document.getElementById('watch-venue-id').value,
+        venue_name: document.getElementById('watch-venue-name').value,
+        party_size: parseInt(document.getElementById('watch-party-size').value),
+        date_start: document.getElementById('watch-date-start').value,
+        date_end: document.getElementById('watch-date-end').value || null,
+        time_earliest: document.getElementById('watch-time-earliest').value,
+        time_latest: document.getElementById('watch-time-latest').value,
+        snipe_mode: document.getElementById('watch-snipe').checked ? 1 : 0,
+    };
+    if (!body.venue_id || !body.date_start) {
+        alert('Venue ID and start date are required');
+        return;
+    }
+    await api('/api/watches', { method: 'POST', body });
+    // Clear form
+    document.getElementById('watch-venue-id').value = '';
+    document.getElementById('watch-venue-name').value = '';
+    // Switch to dashboard
+    document.querySelector('[data-page="dashboard"]').click();
+    loadAll();
+}
+
+async function toggleWatch(id, active) {
+    await api('/api/watches/' + id, { method: 'PUT', body: { active } });
+    loadAll();
+}
+
+async function deleteWatch(id) {
+    if (!confirm('Delete this watch?')) return;
+    await api('/api/watches/' + id, { method: 'DELETE' });
+    loadAll();
+}
+
+async function saveSettings() {
+    const body = {
+        api_key: document.getElementById('setting-api-key').value,
+        auth_token: document.getElementById('setting-auth-token').value,
+        payment_method_id: document.getElementById('setting-payment-id').value,
+    };
+    await api('/api/settings', { method: 'POST', body });
+    document.getElementById('settings-status').textContent = '✓ Saved!';
+    setTimeout(() => document.getElementById('settings-status').textContent = '', 3000);
+}
+
+async function clearActivity() {
+    if (!confirm('Clear all activity?')) return;
+    await api('/api/activity', { method: 'DELETE' });
+    loadAll();
+}
+
+// ─── Search ────────────────────────────────────────────────
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(doSearch, 400);
+}
+
+async function doSearch() {
+    const q = document.getElementById('search-input').value.trim();
+    const el = document.getElementById('search-results');
+    if (q.length < 2) { el.innerHTML = ''; return; }
+    
+    el.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:8px">Searching...</div>';
+    const result = await api('/api/search?q=' + encodeURIComponent(q));
+    
+    if (result.error) {
+        el.innerHTML = `<div style="color:var(--red);font-size:13px;padding:8px">${esc(result.error)}</div>`;
+        return;
+    }
+    
+    const venues = result.search?.hits || [];
+    if (!venues.length) {
+        el.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:8px">No results found. Make sure your API key is set in Settings.</div>';
+        return;
+    }
+    
+    el.innerHTML = venues.map(v => {
+        const id = v.id?.resy || v.venue_id || '';
+        const name = v.name || '';
+        const loc = [v.region?.name, v.locality?.name].filter(Boolean).join(', ');
+        return `
+            <div class="search-result" onclick="selectSearchResult('${id}', '${esc(name)}')">
+                <div>
+                    <div class="search-name">${esc(name)}</div>
+                    <div class="search-meta">${esc(loc)} · ID: ${id}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function selectSearchResult(id, name) {
+    document.getElementById('watch-venue-id').value = id;
+    document.getElementById('watch-venue-name').value = name;
+    document.getElementById('search-results').innerHTML = `<div style="color:var(--green);font-size:13px;padding:8px">✓ Selected: ${name} (${id})</div>`;
+}
+
+// ─── Helpers ───────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function timeAgo(ts) {
+    if (!ts) return '';
+    const d = new Date(ts + (ts.includes('Z') || ts.includes('+') ? '' : 'Z'));
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+}
+
+// ─── Init ──────────────────────────────────────────────────
+loadAll();
+setInterval(loadAll, 15000); // Refresh every 15s
+</script>
+</body>
+</html>
