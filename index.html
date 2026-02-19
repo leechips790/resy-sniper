@@ -395,7 +395,7 @@ function render() {
             <div class="slot-item ${s.booked ? 'booked' : ''}">
                 <div class="slot-info">
                     <div class="slot-venue">${esc(s.venue_name)}</div>
-                    <div class="slot-detail">${s.date} at ${s.time} · Party of ${s.party_size}</div>
+                    <div class="slot-detail">${s.date} at ${fmt12(s.time && s.time.includes(' ') ? s.time.split(' ')[1].substring(0,5) : (s.time||'').substring(0,5))} · Party of ${s.party_size}</div>
                     <div class="slot-detail">Found ${timeAgo(s.seen_at)}</div>
                 </div>
                 <span class="slot-badge ${s.booked ? 'booked' : 'new'}">${s.booked ? '✅ Booked' : '🆕 Open'}</span>
@@ -412,7 +412,7 @@ function renderActivity(el, items) {
     el.innerHTML = items.map(a => `
         <div class="activity-item type-${a.type}">
             <div class="activity-time">${a.created_at ? timeAgo(a.created_at) : ''}</div>
-            <div class="activity-msg">${esc(a.message)}</div>
+            <div class="activity-msg">${esc(a.message).replace(/(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})/g, (m,d,t) => d + ' at ' + fmt12(t.substring(0,5))).replace(/at (\d{2}:\d{2}:\d{2})/g, (m,t) => 'at ' + fmt12(t.substring(0,5)))}</div>
         </div>
     `).join('');
 }
